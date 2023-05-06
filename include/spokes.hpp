@@ -24,6 +24,8 @@ struct spokes_app : public ci::app::App
 
     int spokes;
 
+    float line_width;
+
     // glm::ivec2 current_mouse_position;
     // glm::ivec2 previous_mouse_position;
 
@@ -38,6 +40,7 @@ auto spokes_app::setup() -> void
     try_closing = false;
     record_mouse = false;
     spokes = 3;
+    line_width = 1.f;
 
     ImGui::Initialize();
 };
@@ -56,9 +59,12 @@ auto spokes_app::update() -> void
             if (ImGui::BeginMenu("Settings"))
             {
                 ImGui::SliderInt("Spokes", &spokes, 1, 50);
+                ImGui::SliderFloat("Line Width", &line_width, 1.f, 5.f);
 
                 ImGui::EndMenu();
             }
+
+            ImGui::Separator();
 
             if (ImGui::MenuItem("Quit", "Ctrl + W"))
             {
@@ -118,6 +124,7 @@ auto spokes_app::draw() -> void
     // }
     ci::gl::clear();
     ci::gl::color(ci::Color::white());
+    ci::gl::lineWidth(line_width);
 
     if (mouse_positions.size() > 1)
     {
@@ -127,7 +134,13 @@ auto spokes_app::draw() -> void
         for (std::size_t i = 0; i < spokes; ++i)
         {
             ci::gl::rotate(2 * 3.1415926535897 / spokes);
-            ci::gl::draw(mouse_positions);
+            ci::gl::begin(GL_LINE_STRIP);
+            for (std::size_t j = 0; j < mouse_positions.size(); ++j)
+            {
+                ci::gl::color(ci::Color8u(j % 255, (j + 85) % 255, (j + 170) % 255));
+                ci::gl::vertex(mouse_positions[j]);
+            }
+            ci::gl::end();
         }
 
         ci::gl::popModelMatrix();
