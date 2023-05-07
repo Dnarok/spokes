@@ -3,10 +3,11 @@
 #include <cinder/gl/gl.h>
 #include <cinder/CinderImGui.h>
 #include <cinder/Log.h>
+#include <cinder/Perlin.h>
+
+#include <glm/gtc/random.hpp>
 
 #include <Windows.h>
-
-#include <numbers>
 
 struct spokes_app : public ci::app::App
 {
@@ -19,30 +20,61 @@ struct spokes_app : public ci::app::App
     auto mouseUp(ci::app::MouseEvent event) -> void override;
 
     bool try_closing;
-    bool record_mouse;
-    // bool do_clear;
+    bool record;
 
     int spokes;
-
     float line_width;
+    float color_cycle;
+    float cycle_start;
+    float cycle_end;
 
-    // glm::ivec2 current_mouse_position;
-    // glm::ivec2 previous_mouse_position;
+    ci::Perlin generator;
+    std::int32_t perlin_seed;
+    std::uint8_t perlin_octaves;
+    float perlin_x;
+    float perlin_x_change;
+    float perlin_y;
+    float perlin_y_change;
 
-    std::vector<glm::vec2> mouse_positions;
+    std::vector<glm::vec2> positions;
 };
 
 auto spokes_app::setup() -> void
 {
-    setFullScreen(true);
-    //setWindowSize(800, 800);
+    //setFullScreen(true);
+    setWindowSize(800, 800);
 
     try_closing = false;
-    record_mouse = false;
+    record = false;
     spokes = 3;
     line_width = 1.f;
+    color_cycle = 300.f;
+    cycle_start = 0.f;
+    cycle_end = 1.f;
+    perlin_seed = 12345678;
+    perlin_octaves = 4;
+    generator = ci::Perlin{ perlin_octaves, perlin_seed };
+    perlin_x = glm::linearRand(0.f, 10000.f);
+    perlin_x_change = 0.005f;
+    perlin_y = glm::linearRand(0.f, 10000.f);
+    perlin_y_change = 0.005f;
 
     ImGui::Initialize();
+};
+
+// Helper to display a little (?) mark which shows a tooltip when hovered.
+// In your own code you may want to display an actual icon if you are using a merged icon fonts (see docs/FONTS.md)
+static void HelpMarker(const char* desc)
+{
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+        ImGui::TextUnformatted(desc);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
 };
 
 auto spokes_app::update() -> void
@@ -59,7 +91,46 @@ auto spokes_app::update() -> void
             if (ImGui::BeginMenu("Settings"))
             {
                 ImGui::SliderInt("Spokes", &spokes, 1, 50);
+                ImGui::SameLine(); 
+                HelpMarker("The number of copies of the line that is being drawn.\nAll spokes are evenly spaced in a circle.");
+
                 ImGui::SliderFloat("Line Width", &line_width, 1.f, 5.f);
+                ImGui::SameLine();
+                HelpMarker("The average pixel width of the drawn lines.");
+
+                ImGui::SliderFloat("Color Cycle", &color_cycle, 50.f, 1000.f);
+                ImGui::SameLine();
+                HelpMarker("How many vertices to process before the color cycle is back to the start.");
+
+                ImGui::SliderFloat("Cycle Start", &cycle_start, 0.f, 1.f);
+                ImGui::SameLine();
+                HelpMarker("Which hue the color cycle should start at.");
+
+                ImGui::SliderFloat("Cycle End", &cycle_end, 0.f, 1.f);
+                ImGui::SameLine();
+                HelpMarker("Which hue the color cycle should end at.");
+
+                if (ImGui::InputInt("Perlin Seed", &perlin_seed))
+                {
+                    generator.setSeed(perlin_seed);
+                }
+                ImGui::SameLine();
+                HelpMarker("The seed that the perlin noise generator should use.");
+
+                if (ImGui::InputScalar("Perlin Octave", ImGuiDataType_U8, &perlin_octaves))
+                {
+                    generator.setOctaves(perlin_octaves);
+                }
+                ImGui::SameLine();
+                HelpMarker("The octaves that the perlin noise generator should use.");
+
+                ImGui::SliderFloat("Perlin X Change", &perlin_x_change, 0.00001f, 0.1f, "%.5f");
+                ImGui::SameLine();
+                HelpMarker("The rate of change along the X axis.");
+
+                ImGui::SliderFloat("Perlin Y Change", &perlin_y_change, 0.00001f, 0.1f, "%.5f");
+                ImGui::SameLine();
+                HelpMarker("The rate of change along the Y ayis.");
 
                 ImGui::EndMenu();
             }
@@ -89,7 +160,6 @@ auto spokes_app::update() -> void
         ImGui::SameLine();
         if (ImGui::Button("No"))
         {
-            // do_clear = true;
             try_closing = false;
             ImGui::CloseCurrentPopup();
         }
@@ -97,36 +167,33 @@ auto spokes_app::update() -> void
         ImGui::EndPopup();
     }
 
-    ImGui::ShowDemoWindow();
+    // ImGui::ShowDemoWindow();
 
-    if (record_mouse)
+    if (record)
     {
-        // previous_mouse_position = current_mouse_position;
-        // current_mouse_position = getMousePos() - (getWindowPos() + glm::ivec2{ getWindowCenter() });
-        glm::vec2 mouse_position = getMousePos() - (getWindowPos() + glm::ivec2{ getWindowCenter() });
-        if (mouse_positions.empty())
+        perlin_x += perlin_x_change;
+        float x = generator.fBm(perlin_x);
+        perlin_y += perlin_y_change;
+        float y = generator.fBm(perlin_y);
+        glm::vec2 position{ getWindowWidth() * x, getWindowHeight() * y };
+        if (positions.empty())
         {
-            mouse_positions.push_back(mouse_position);
+            positions.push_back(position);
         }
-        else if (mouse_position != mouse_positions.back())
+        else if (position != positions.back())
         {
-            mouse_positions.push_back(mouse_position);
+            positions.push_back(position);
         }
     }
 };
 
 auto spokes_app::draw() -> void
 {
-    // if (do_clear)
-    // {
-    //     do_clear = false;
-    //     ci::gl::clear();
-    // }
     ci::gl::clear();
     ci::gl::color(ci::Color::white());
     ci::gl::lineWidth(line_width);
 
-    if (mouse_positions.size() > 1)
+    if (positions.size() > 1)
     {
         ci::gl::pushModelMatrix();
 
@@ -135,28 +202,17 @@ auto spokes_app::draw() -> void
         {
             ci::gl::rotate(2 * 3.1415926535897 / spokes);
             ci::gl::begin(GL_LINE_STRIP);
-            for (std::size_t j = 0; j < mouse_positions.size(); ++j)
+            for (std::size_t j = 0; j < positions.size(); ++j)
             {
-                ci::gl::color(ci::Color8u(j % 255, (j + 85) % 255, (j + 170) % 255));
-                ci::gl::vertex(mouse_positions[j]);
+                float hue = ci::lmap(std::fmod(j / color_cycle, 1.f), 0.f, 1.f, cycle_start, cycle_end);
+                ci::gl::color(ci::hsvToRgb({ hue, 1.f, 1.f }));
+                ci::gl::vertex(positions[j]);
             }
             ci::gl::end();
         }
 
         ci::gl::popModelMatrix();
     }
-
-    // if (previous_mouse_position != glm::ivec2{}&& previous_mouse_position != current_mouse_position)
-    // {
-    //     ci::gl::pushModelMatrix();
-    //     ci::gl::translate(getWindowCenter());
-    //     for (std::size_t i = 0; i < spokes; ++i)
-    //     {
-    //         ci::gl::rotate(2 * 3.1415926535897 / spokes);
-    //         ci::gl::drawLine(previous_mouse_position, current_mouse_position);
-    //     }
-    //     ci::gl::popModelMatrix();
-    // }
 
     ci::gl::drawSolidCircle({ 50, 50 }, 50);
 };
@@ -165,9 +221,44 @@ auto spokes_app::keyDown(ci::app::KeyEvent event) -> void
 {
     switch (event.getCode())
     {
+    case ci::app::KeyEvent::KEY_MINUS:
+        if (event.isShiftDown())
+        {
+            if (line_width > 0.99)
+            {
+                line_width -= 1.0;
+            }
+        }
+        else
+        {
+            if (spokes > 1)
+            {
+                --spokes;
+            }
+        }
+        break;
+    case ci::app::KeyEvent::KEY_EQUALS:
+        if (event.isShiftDown())
+        {
+            if (line_width < 10.01)
+            {
+                line_width += 1.0;
+            }
+        }
+        else
+        {
+            if (spokes < 50)
+            {
+                ++spokes;
+            }
+        }
+        break;
     case ci::app::KeyEvent::KEY_c:
-        // do_clear = true;
-        mouse_positions.clear();
+        positions.clear();
+        break;
+    case ci::app::KeyEvent::KEY_r:
+        perlin_x = glm::linearRand(0.f, 10000.f);
+        perlin_y = glm::linearRand(0.f, 10000.f);
         break;
     case ci::app::KeyEvent::KEY_w:
         if (!event.isControlDown())
@@ -178,21 +269,24 @@ auto spokes_app::keyDown(ci::app::KeyEvent event) -> void
     case ci::app::KeyEvent::KEY_ESCAPE:
         try_closing = true;
         break;
+    case ci::app::KeyEvent::KEY_SPACE:
+        record = !record;
+        break;
     }
 };
 
 auto spokes_app::mouseDown(ci::app::MouseEvent event) -> void
 {
-    if (event.isLeft())
-    {
-        record_mouse = true;
-    }
+    // if (event.isLeft())
+    // {
+    //     record = true;
+    // }
 };
 
 auto spokes_app::mouseUp(ci::app::MouseEvent event) -> void
 {
-    if (event.isLeft())
-    {
-        record_mouse = false;
-    }
+    // if (event.isLeft())
+    // {
+    //     record = false;
+    // }
 };
